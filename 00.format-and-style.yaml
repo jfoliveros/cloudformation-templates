@@ -1,0 +1,209 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: '
+    Cloudformation Template - 00
+    Mappings, Parameters, Naming Style (Kinesis-Lambda Example)
+    Author: Julian Marvick Oliveros
+    Date of Creation: 06/06/2020
+  '
+Mappings:
+  AppNamingConstruct:
+    AppName:
+      Value: datafilterapp
+  AccountNamingConstruct:
+    TeamName:
+      Value: developer
+    Context:
+      Value: standard
+  Settings:
+    Kinesis:
+      BATCHSIZE: 100
+      STARTPOSITION: LATEST
+      MAXRETRIES: 2
+      MAXBATCHWINDOWSECONDS: 50
+  Stacks:
+    KinesisStack:
+      Name: Kinesis
+      Exports:
+        StreamArn1: KinesisDataStreamArn
+    QueueStack:
+      Name: Queue
+      Exports:
+        SQSArn1: SQSArn
+    Network:
+      Name: Network
+      Exports:
+        SubnetId1: PrivateSubnetId1
+        SecurityGroupId1: PrivateSubnetId1
+  Tags:
+    Key1:
+      Value1: value1
+    Key2:
+      Value2: value2
+
+Parameters:
+  Var1:
+    Type: String
+    Description: Source Code Environment Variable 1
+  Var2:
+    Type: String
+    Description: Source Code Environment Variable 2
+  Env:
+    Type: String
+    Description: Deployment Environment
+
+Resources:
+  DataFilterFunctionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName:
+        !Join [
+          "-",
+          [
+            !FindInMap [AppNamingConstruct, AppName, Value],
+            !Ref Env,
+            "autodeploy",
+            "iam-role"
+          ],
+        ]
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Action:
+              - 'sts:AssumeRole'
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole'
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaKinesisExecutionRole'
+      Policies:
+        - PolicyName: SqsSendPolicy
+          PolicyDocument:
+            Statement:
+              - Action: 'sqs:SendMessage'
+                Resource:
+                  Fn::ImportValue:
+                    !Join [
+                      "-",
+                      [
+                        !FindInMap [Stacks, QueueStack, Name],
+                        !FindInMap [Stacks, QueueStack, Exports, SQSArn1]
+                      ],
+                    ]
+                Effect: Allow
+                Sid: 1
+      Tags:
+        - Key: 'lambda:createdBy'
+          Value: SAM
+        - Key: 'Key1'
+          Value: !FindInMap [Tags, Key1, Value1],
+        - Key: 'Key2'
+          Value: !FindInMap [Tags, Key2, Value2]
+
+  DataFilterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: app/
+      Handler: app.lambda_handler
+      Runtime: python3.8
+      FunctionName:
+        !Join [
+          "-",
+          [
+            !FindInMap [AppNamingConstruct, AppName, Value],
+            !Ref Env,
+            "autodeploy",
+            "lambda-function"
+          ],
+        ]
+      Role: !GetAtt
+        - DataFilterFunctionRole
+        - Arn
+      VpcConfig:
+        SubnetIds:
+          - Fn::ImportValue:
+              !Join [
+                "-",
+                [
+                  !FindInMap [Stacks, NetworkStack, Name],
+                  !FindInMap [Stacks, NetworkStack, Exports, PrivateSubnetId1]
+                ]
+              ]
+        SecurityGroupIds:
+          - Fn::ImportValue:
+              !Join [
+                "-",
+                [
+                  !FindInMap [Stacks, NetworkStack, Name],
+                  !FindInMap [Stacks, NetworkStack, Exports, SecurityGroupId1]
+                ],
+              ]
+      Events:
+        KinesisDataStream:
+          Type: Kinesis
+          Properties:
+            Stream:
+              Fn::ImportValue:
+                !Join [
+                  "-",
+                  [
+                    !FindInMap [Stacks, KinesisStack, Name],
+                    !FindInMap [Stacks, KinesisStack, Exports, StreamArn1]
+                  ]
+                ]
+            BatchSize: !FindInMap [Settings, Kinesis, BATCHSIZE]
+            StartingPosition: !FindInMap [Settings, Kinesis, STARTPOSITION]
+            MaximumRetryAttempts: !FindInMap [Settings, Kinesis, MAXRETRIES]
+            MaximumBatchingWindowInSeconds: !FindInMap [Settings, Kinesis, MAXBATCHWINDOWSECONDS]
+      Environment:
+        Variables:
+          VAR1:
+            !Ref Var1
+          VAR2:
+            !Ref Var2
+          ENV:
+            !Ref Env
+      Tags:
+        Key1: !FindInMap [Tags, Key1, Value1]
+        Key2: !FindInMap [Tags, Key2, Value2]
+
+Outputs:
+  DataFilterFunctionArn:
+    Description: "DataFilterFunction Lambda ARN"
+    Value: !GetAtt DataFilterFunction.Arn
+    Export:
+      Name:
+        !Join [
+          "-",
+          [
+            !Ref "AWS::StackName",
+            "DataFilterFunctionArn",
+          ],
+        ]
+  DataFilterFunctionRoleArn:
+    Description: "ARN of IAM Role created for DataFilterFunction Lambda"
+    Value: !GetAtt DataFilterFunctionRole.Arn
+    Export:
+      Name:
+        !Join [
+          "-",
+          [
+            !Ref "AWS::StackName",
+            "DataFilterFunctionRoleArn",
+          ],
+        ]
+  DataFilterFunctionRoleId:
+    Description: "ID of IAM Role created for DataFilterFunction Lambda"
+    Value: !GetAtt DataFilterFunctionRole.RoleId
+    Export:
+      Name:
+        !Join [
+          "-",
+          [
+            !Ref "AWS::StackName",
+            "DataFilterFunctionRoleId",
+          ],
+        ]

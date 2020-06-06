@@ -10,11 +10,6 @@ Mappings:
   AppNamingConstruct:
     AppName:
       Value: datafilterapp
-  AccountNamingConstruct:
-    TeamName:
-      Value: developer
-    Context:
-      Value: standard
   Settings:
     Kinesis:
       BATCHSIZE: 100
